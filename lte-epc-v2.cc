@@ -29,6 +29,7 @@
 #include "ns3/config-store-module.h"
 #include "ns3/lte-module.h"
 #include "ns3/netanim-module.h"
+#include "ns3/random-waypoint-mobility-model.h"
 
 
 
@@ -46,7 +47,7 @@ int
 main (int argc, char *argv[])
 {
   uint16_t numNodePairs = 2;
-  Time simTime = MilliSeconds (1500);
+  Time simTime = MilliSeconds (10000);
   double distance = 60.0;
   Time interPacketInterval = MilliSeconds (200);
   bool disableDl = false;
@@ -115,11 +116,17 @@ main (int argc, char *argv[])
       positionAllocUe->Add (Vector (distance * i, 0, 0));
     }
   MobilityHelper mobility;
+  // Install the mobility model to the nodes
+  mobility.SetMobilityModel ("ns3::RandomDirection2dMobilityModel",
+                              "Speed", StringValue ("ns3::UniformRandomVariable[Min=10|Max=20]"),
+                              "Pause", StringValue ("ns3::ConstantRandomVariable[Constant=0.005]"),
+                              "Bounds", RectangleValue (Rectangle (-10, 70, -25, 25)));
+  mobility.SetPositionAllocator(positionAllocUe);
+  mobility.Install (ueNodes);
+
   mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel"); // mobility model (constant)
   mobility.SetPositionAllocator(positionAllocEnb);
   mobility.Install(enbNodes);
-  mobility.SetPositionAllocator(positionAllocUe);
-  mobility.Install(ueNodes);
 
   // Install LTE Devices to the nodes
   NetDeviceContainer enbLteDevs = lteHelper->InstallEnbDevice (enbNodes); // add eNB nodes to the container
