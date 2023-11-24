@@ -13,7 +13,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include "tutorial-app.h"
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
@@ -26,6 +25,10 @@
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("FifthScriptExample");
+
+// Add the missing include for "tutorial-app.h"
+#include "tutorial-app.h"
+
 
 // ===========================================================================
 //

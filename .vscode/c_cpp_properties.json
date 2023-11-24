@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "/home/hyksm/ns3/ns-3.40/build/include/ns3",
-                "/home/hyksm/ns3/ns-3.40/build/include"
+                "/home/hyksm/ns3/ns-3.40/build/include",
+                "${workspaceFolder}"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
