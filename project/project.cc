@@ -40,13 +40,49 @@ int main (int argc, char *argv[])
 
   // Create UEs, it was only for try the model
   NodeContainer ueNodes;
-  ueNodes.Create (numNodePairs); // number of UEs defined by numNodePairs
+  ueNodes.Create (10); // number of UEs defined by numNodePairs
 
   // Install Mobility Model
   MobilityHelper mobility;
   mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel"); // mobility model (constant)
   mobility.Install(enbNodes);
-  mobility.Install(ueNodes);
+
+  Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
+  positionAlloc->Add (Vector (0.0, 0.0, 0.0));
+  positionAlloc->Add (Vector (10.0, 0.0, 0.0));
+  positionAlloc->Add (Vector (20.0, 0.0, 0.0));
+  positionAlloc->Add (Vector (30.0, 0.0, 0.0));
+  positionAlloc->Add (Vector (40.0, 0.0, 0.0));
+  
+  // Assign positions to 5 stationary UEs
+  NodeContainer stationaryUeNodes;
+  stationaryUeNodes.Add (ueNodes.Get (0));
+  stationaryUeNodes.Add (ueNodes.Get (1));
+  stationaryUeNodes.Add (ueNodes.Get (2));
+  stationaryUeNodes.Add (ueNodes.Get (3));
+  stationaryUeNodes.Add (ueNodes.Get (4));
+
+  MobilityHelper stationaryMobility;
+  stationaryMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  stationaryMobility.SetPositionAllocator (positionAlloc);
+  stationaryMobility.Install (stationaryUeNodes);
+
+  // Assign positions to 5 walking UEs
+  NodeContainer walkingUeNodes;
+  walkingUeNodes.Add (ueNodes.Get (5));
+  walkingUeNodes.Add (ueNodes.Get (6));
+  walkingUeNodes.Add (ueNodes.Get (7));
+  walkingUeNodes.Add (ueNodes.Get (8));
+  walkingUeNodes.Add (ueNodes.Get (9));
+  
+  MobilityHelper walkingMobility;
+  walkingMobility.SetMobilityModel ("ns3::RandomWalk2dMobilityModel",
+                                   "Bounds", RectangleValue (Rectangle (-500, 500, -500, 500)));
+  walkingMobility.SetPositionAllocator (positionAlloc);
+  walkingMobility.Install (walkingUeNodes);
+
+  ueNodes.Add (stationaryUeNodes);
+  ueNodes.Add (walkingUeNodes);
 
   // Install LTE Devices to the nodes
   NetDeviceContainer enbLteDevs = lteHelper->InstallEnbDevice (enbNodes); // add eNB nodes to the container
