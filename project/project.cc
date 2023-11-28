@@ -9,6 +9,8 @@
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
 #include "ns3/pcap-file.h" // Include the pcap file header
+#include "ns3/buildings-module.h"
+#include "ns3/buildings-propagation-loss-model.h"
 
 using namespace ns3;
 
@@ -56,11 +58,11 @@ int main (int argc, char *argv[])
   
   // Assign positions to 5 stationary UEs
   NodeContainer stationaryUeNodes;
-  stationaryUeNodes.Add (ueNodes.Get (0));
-  stationaryUeNodes.Add (ueNodes.Get (1));
-  stationaryUeNodes.Add (ueNodes.Get (2));
-  stationaryUeNodes.Add (ueNodes.Get (3));
-  stationaryUeNodes.Add (ueNodes.Get (4));
+  //stationaryUeNodes.Add (ueNodes.Get (0));
+  //stationaryUeNodes.Add (ueNodes.Get (1));
+  //stationaryUeNodes.Add (ueNodes.Get (2));
+  //stationaryUeNodes.Add (ueNodes.Get (3));
+  //stationaryUeNodes.Add (ueNodes.Get (4));
 
   MobilityHelper stationaryMobility;
   stationaryMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -121,6 +123,34 @@ int main (int argc, char *argv[])
   p2ph.SetChannelAttribute("Delay", StringValue("10ms"));
   NetDeviceContainer internetDevices = p2ph.Install(remoteNode, enbNodes.Get(0));
 
+  //Creating a Building
+  Ptr<Building> building = Create<Building>();
+  building->SetBoundaries(Box(0.0, 50.0, 0.0, 50.0, 0.0, 20.0)); // Set the building boundaries (x, y, z)
+
+
+  Ptr<BuildingsPropagationLossModel> buildingLossModel = CreateObject<BuildingsPropagationLossModel>();
+  buildingLossModel->SetPathLossModel("ns3::LogDistancePropagationLossModel");
+  buildingLossModel->SetBuilding(building);
+
+  // Set the propagation loss model for nodes inside the building
+  for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
+    Ptr<MobilityModel> mobility = ueNodes.Get(i)->GetObject<MobilityModel>();
+    mobility->AggregateObject(buildingLossModel);
+  }
+
+  Ptr<ListPositionAllocator> positionAllocInBuilding = CreateObject<ListPositionAllocator>();
+  positionAllocInBuilding->Add(Vector(5.0, 5.0, 5.0));
+  positionAllocInBuilding->Add(Vector(5.0, 10.0, 5.0)); 
+  positionAllocInBuilding->Add(Vector(12.0, 20.0, 5.0)); 
+  positionAllocInBuilding->Add(Vector(25.0, 30.0, 5.0)); 
+  positionAllocInBuilding->Add(Vector(30.0, 45.0, 5.0)); 
+  // Add positions for UEs inside the building
+
+  // Assign these positions to UEs within the building
+  MobilityHelper mobilityInBuilding;
+  mobilityInBuilding.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+  mobilityInBuilding.SetPositionAllocator(positionAllocInBuilding);
+  mobilityInBuilding.Install(ueNodes.Get(0, 4)); // Assuming UEs 0-4 are inside the building
   
 
   // Run simulation
