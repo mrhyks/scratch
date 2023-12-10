@@ -30,9 +30,6 @@
 #include "ns3/lte-module.h"
 #include "ns3/netanim-module.h"
 #include "ns3/random-waypoint-mobility-model.h"
-#include <iostream>
-#include <cstdlib>
-#include <ctime>
 
 
 
@@ -45,72 +42,6 @@ using namespace ns3;
  */
 
 NS_LOG_COMPONENT_DEFINE ("lte-basic-epc");
-
-void
-ServerConnectionEstablished (Ptr<const ThreeGppHttpServer>, Ptr<Socket>)
-{
-  NS_LOG_INFO ("Client has established a connection to the server.");
-}
-
-void
-MainObjectGenerated (uint32_t size)
-{
-  NS_LOG_INFO ("Server generated a main object of " << size << " bytes.");
-}
-
-void
-EmbeddedObjectGenerated (uint32_t size)
-{
-  NS_LOG_INFO ("Server generated an embedded object of " << size << " bytes.");
-}
-
-void
-ServerTx (Ptr<const Packet> packet)
-{
-  NS_LOG_INFO ("Server sent a packet of " << packet->GetSize () << " bytes.");
-}
-
-void
-ClientRx (Ptr<const Packet> packet, const Address &address)
-{
-  NS_LOG_INFO ("Client received a packet of " << packet->GetSize () << " bytes from " << address);
-}
-
-void
-ClientMainObjectReceived (Ptr<const ThreeGppHttpClient>, Ptr<const Packet> packet)
-{
-  Ptr<Packet> p = packet->Copy ();
-  ThreeGppHttpHeader header;
-  p->RemoveHeader (header);
-  if (header.GetContentLength () == p->GetSize ()
-      && header.GetContentType () == ThreeGppHttpHeader::MAIN_OBJECT)
-    {
-      NS_LOG_INFO ("Client has successfully received a main object of "
-                   << p->GetSize () << " bytes.");
-    }
-  else
-    {
-      NS_LOG_INFO ("Client failed to parse a main object. ");
-    }
-}
-
-void
-ClientEmbeddedObjectReceived (Ptr<const ThreeGppHttpClient>, Ptr<const Packet> packet)
-{
-  Ptr<Packet> p = packet->Copy ();
-  ThreeGppHttpHeader header;
-  p->RemoveHeader (header);
-  if (header.GetContentLength () == p->GetSize ()
-      && header.GetContentType () == ThreeGppHttpHeader::EMBEDDED_OBJECT)
-    {
-      NS_LOG_INFO ("Client has successfully received an embedded object of "
-                   << p->GetSize () << " bytes.");
-    }
-  else
-    {
-      NS_LOG_INFO ("Client failed to parse an embedded object. ");
-    }
-}
 
 int
 main (int argc, char *argv[])
@@ -174,8 +105,8 @@ main (int argc, char *argv[])
   NodeContainer ueNodes;
   NodeContainer enbNodes;
   enbNodes.Create (numNodePairs); // create eNB nodes
-  ueNodes.Create (10); // create UE nodes
-  
+  ueNodes.Create (numNodePairs); // create UE nodes
+
   // Install Mobility Model
   Ptr<ListPositionAllocator> positionAllocEnb = CreateObject<ListPositionAllocator> ();
   Ptr<ListPositionAllocator> positionAllocUe = CreateObject<ListPositionAllocator> ();
@@ -217,67 +148,58 @@ main (int argc, char *argv[])
 
   // Attach one UE per eNodeB
   for (uint16_t i = 0; i < numNodePairs; i++)
-  {
-    if (i % 2 == 0)
     {
-      lteHelper->Attach(ueLteDevs.Get(i), enbLteDevs.Get(0)); // attach UE nodes to the 1st eNB node
+      lteHelper->Attach (ueLteDevs.Get(i), enbLteDevs.Get(i)); // attach UE nodes to eNB nodes
+      // side effect: the default EPS bearer will be activated
     }
-    else
-    {
-      lteHelper->Attach(ueLteDevs.Get(i), enbLteDevs.Get(1)); // attach UE nodes to the 2nd eNB node
-    }
-    // side effect: the default EPS bearer will be activated
-  }
-  // Create HTTP server helper
-  ThreeGppHttpServerHelper serverHelper (remoteHostAddr);
-
-  // Install HTTP server
-  ApplicationContainer serverApps = serverHelper.Install (remoteHostContainer.Get (0));
-  Ptr<ThreeGppHttpServer> httpServer = serverApps.Get (0)->GetObject<ThreeGppHttpServer> ();
-
-  // Example of connecting to the trace sources
-  httpServer->TraceConnectWithoutContext ("ConnectionEstablished",
-                                          MakeCallback (&ServerConnectionEstablished));
-  httpServer->TraceConnectWithoutContext ("MainObject", MakeCallback (&MainObjectGenerated));
-  httpServer->TraceConnectWithoutContext ("EmbeddedObject", MakeCallback (&EmbeddedObjectGenerated));
-  httpServer->TraceConnectWithoutContext ("Tx", MakeCallback (&ServerTx));
-
-  // Setup HTTP variables for the server
-  PointerValue varPtr;
-  httpServer->GetAttribute ("Variables", varPtr);
-  Ptr<ThreeGppHttpVariables> httpVariables = varPtr.Get<ThreeGppHttpVariables> ();
-  httpVariables->SetMainObjectSizeMean (102400); // 100kB
-  httpVariables->SetMainObjectSizeStdDev (40960); // 40kB
 
 
-  // Create HTTP client helper
-  ThreeGppHttpClientHelper clientHelper (remoteHostAddr);
+  // Install and start applications on UEs and remote host
+  uint16_t dlPort = 1100;
+  uint16_t ulPort = 2000;
+  uint16_t otherPort = 3000;
   ApplicationContainer clientApps;
-  // Install HTTP client
+  ApplicationContainer serverApps;
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
-  { 
-  
-    // Seed the random number generator
-    std::srand(std::time(0));
+    {
+      if (!disableDl)
+        {
+          PacketSinkHelper dlPacketSinkHelper ("ns3::UdpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), dlPort));
+          serverApps.Add (dlPacketSinkHelper.Install (ueNodes.Get (u)));
 
-    // Generate a random number in the range from 1 to 2
-    int randomNumber = 1 + std::rand() % 2;
+          UdpClientHelper dlClient (ueIpIface.GetAddress (u), dlPort); // udp client
+          dlClient.SetAttribute ("Interval", TimeValue (interPacketInterval));
+          dlClient.SetAttribute ("MaxPackets", UintegerValue (1000000));
+          clientApps.Add (dlClient.Install (remoteHost));
+        }
 
-    if(randomNumber == 1){
-      clientApps = clientHelper.Install (ueNodes.Get (u));
-      Ptr<ThreeGppHttpClient> httpClient = clientApps.Get (0)->GetObject<ThreeGppHttpClient> ();
+      if (!disableUl)
+        {
+          ++ulPort;
+          PacketSinkHelper ulPacketSinkHelper ("ns3::UdpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), ulPort));
+          serverApps.Add (ulPacketSinkHelper.Install (remoteHost));
 
-      // Example of connecting to the trace sources
-      httpClient->TraceConnectWithoutContext ("RxMainObject", MakeCallback (&ClientMainObjectReceived));
-      httpClient->TraceConnectWithoutContext ("RxEmbeddedObject", MakeCallback (&ClientEmbeddedObjectReceived));
-      httpClient->TraceConnectWithoutContext ("Rx", MakeCallback (&ClientRx));
+          UdpClientHelper ulClient (remoteHostAddr, ulPort); // udp client
+          ulClient.SetAttribute ("Interval", TimeValue (interPacketInterval));
+          ulClient.SetAttribute ("MaxPackets", UintegerValue (1000000));
+          clientApps.Add (ulClient.Install (ueNodes.Get(u)));
+        }
+
+      if (!disablePl && numNodePairs > 1)
+        {
+          ++otherPort;
+          PacketSinkHelper packetSinkHelper ("ns3::UdpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), otherPort));
+          serverApps.Add (packetSinkHelper.Install (ueNodes.Get (u)));
+
+          UdpClientHelper client (ueIpIface.GetAddress (u), otherPort); // udp client
+          client.SetAttribute ("Interval", TimeValue (interPacketInterval));
+          client.SetAttribute ("MaxPackets", UintegerValue (1000000));
+          clientApps.Add (client.Install (ueNodes.Get ((u + 1) % numNodePairs)));
+        }
     }
-
-    
-  }
 
   serverApps.Start (MilliSeconds (500));
- clientApps.Start (MilliSeconds (500));
+  clientApps.Start (MilliSeconds (500));
   // lteHelper->EnableTraces ();
 
   

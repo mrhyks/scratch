@@ -18,6 +18,76 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE("project");
+
+
+
+void
+ServerConnectionEstablished(Ptr<const ThreeGppHttpServer>, Ptr<Socket>)
+{
+    NS_LOG_INFO("Client has established a connection to the server.");
+}
+
+void
+MainObjectGenerated(uint32_t size)
+{
+    NS_LOG_INFO("Server generated a main object of " << size << " bytes.");
+}
+
+void
+EmbeddedObjectGenerated(uint32_t size)
+{
+    NS_LOG_INFO("Server generated an embedded object of " << size << " bytes.");
+}
+
+void
+ServerTx(Ptr<const Packet> packet)
+{
+    NS_LOG_INFO("Server sent a packet of " << packet->GetSize() << " bytes.");
+}
+
+void
+ClientRx(Ptr<const Packet> packet, const Address& address)
+{
+    NS_LOG_INFO("Client received a packet of " << packet->GetSize() << " bytes from " << address);
+}
+
+void
+ClientMainObjectReceived(Ptr<const ThreeGppHttpClient>, Ptr<const Packet> packet)
+{
+    Ptr<Packet> p = packet->Copy();
+    ThreeGppHttpHeader header;
+    p->RemoveHeader(header);
+    if (header.GetContentLength() == p->GetSize() &&
+        header.GetContentType() == ThreeGppHttpHeader::MAIN_OBJECT)
+    {
+        NS_LOG_INFO("Client has successfully received a main object of " << p->GetSize()
+                                                                         << " bytes.");
+    }
+    else
+    {
+        NS_LOG_INFO("Client failed to parse a main object. ");
+    }
+}
+
+void
+ClientEmbeddedObjectReceived(Ptr<const ThreeGppHttpClient>, Ptr<const Packet> packet)
+{
+    Ptr<Packet> p = packet->Copy();
+    ThreeGppHttpHeader header;
+    p->RemoveHeader(header);
+    if (header.GetContentLength() == p->GetSize() &&
+        header.GetContentType() == ThreeGppHttpHeader::EMBEDDED_OBJECT)
+    {
+        NS_LOG_INFO("Client has successfully received an embedded object of " << p->GetSize()
+                                                                              << " bytes.");
+    }
+    else
+    {
+        NS_LOG_INFO("Client failed to parse an embedded object. ");
+    }
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -29,7 +99,7 @@ main(int argc, char* argv[])
     Time simTime = Seconds(5.0);
     uint16_t webSocketServer = 1100;
     uint16_t webSocketClient = 2000;
-    Time interPacketInterval = MilliSeconds (200);
+    Time interPacketInterval = MilliSeconds(200);
 
     // Command line arguments
     CommandLine cmd;
@@ -103,12 +173,7 @@ main(int argc, char* argv[])
         lteHelper->InstallEnbDevice(enbNodes); // add eNB nodes to the container
     NetDeviceContainer ueLteDevs =
         lteHelper->InstallUeDevice(ueNodes); // add UE nodes to the container
-
-    // Creating a Building
-    Ptr<Building> building = Create<Building>();
-    building->SetBoundaries(
-        Box(0.0, 50.0, 0.0, 50.0, 0.0, 20.0)); // Set the building boundaries (x, y, z)
-    Ptr<Node> pgw = epcHelper->GetPgwNode();   // get the PGW node
+    Ptr<Node> pgw = epcHelper->GetPgwNode(); // get the PGW node
 
     // Create a single RemoteHost
     NodeContainer remoteHostContainer; // container for remote node
@@ -137,7 +202,7 @@ main(int argc, char* argv[])
                                                Ipv4Mask("255.0.0.0"),
                                                1); // add route
 
-    // Install the IP stack on the UEs
+    /// Install the IP stack on the UEs
     internet.Install(ueNodes);
     // Assign IP address to UEs, set static route
     Ipv4InterfaceContainer ueIpIface;
@@ -153,85 +218,77 @@ main(int argc, char* argv[])
                                          1); // default route
     }
 
-    ApplicationContainer clientApps;
-    ApplicationContainer serverApps;
     // Attach one UE per eNodeB
     for (uint16_t i = 0; i < numNodePairs; i++)
     {
-        lteHelper->Attach(ueLteDevs.Get(i), enbLteDevs.Get(i)); // attach UE nodes to eNB nodes
+        if (i % 2 == 0)
+        {
+            lteHelper->Attach(ueLteDevs.Get(i),
+                              enbLteDevs.Get(0)); // attach UE nodes to the 1st eNB node
+        }
+        else
+        {
+            lteHelper->Attach(ueLteDevs.Get(i),
+                              enbLteDevs.Get(1)); // attach UE nodes to the 2nd eNB node
+        }
         // side effect: the default EPS bearer will be activated
     }
+    // Create HTTP server helper
+    ThreeGppHttpServerHelper serverHelper(remoteHostAddr);
 
+    // Install HTTP server
+    ApplicationContainer serverApps = serverHelper.Install(remoteHostContainer.Get(0));
+    Ptr<ThreeGppHttpServer> httpServer = serverApps.Get(0)->GetObject<ThreeGppHttpServer>();
+
+    // Example of connecting to the trace sources
+    httpServer->TraceConnectWithoutContext("ConnectionEstablished",
+                                           MakeCallback(&ServerConnectionEstablished));
+    httpServer->TraceConnectWithoutContext("MainObject", MakeCallback(&MainObjectGenerated));
+    httpServer->TraceConnectWithoutContext("EmbeddedObject",
+                                           MakeCallback(&EmbeddedObjectGenerated));
+    httpServer->TraceConnectWithoutContext("Tx", MakeCallback(&ServerTx));
+
+    // Setup HTTP variables for the server
+    PointerValue varPtr;
+    httpServer->GetAttribute("Variables", varPtr);
+    Ptr<ThreeGppHttpVariables> httpVariables = varPtr.Get<ThreeGppHttpVariables>();
+    httpVariables->SetMainObjectSizeMean(102400);  // 100kB
+    httpVariables->SetMainObjectSizeStdDev(40960); // 40kB
+
+    // Create HTTP client helper
+    ThreeGppHttpClientHelper clientHelper(remoteHostAddr);
+    ApplicationContainer clientApps;
+    // Install HTTP client
     for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
     {
-        // Install and start applications on UEs and remote host
-        PacketSinkHelper dlPacketSinkHelper("ns3::UdpSocketFactory",
-                                            InetSocketAddress(Ipv4Address::GetAny(), webSocketServer));
-        serverApps.Add(dlPacketSinkHelper.Install(ueNodes.Get(u)));
+        // Seed the random number generator
+        std::srand(std::time(0));
 
-        UdpClientHelper dlClient(ueIpIface.GetAddress(u), webSocketServer); // udp client
-        dlClient.SetAttribute("Interval", TimeValue(interPacketInterval));
-        dlClient.SetAttribute("MaxPackets", UintegerValue(1000000));
-        clientApps.Add(dlClient.Install(remoteHost));
+        // Generate a random number in the range from 1 to 2
+        int randomNumber = 1 + std::rand() % 2;
 
-        ++webSocketClient;
-        PacketSinkHelper ulPacketSinkHelper("ns3::UdpSocketFactory",
-                                            InetSocketAddress(Ipv4Address::GetAny(), webSocketClient));
-        serverApps.Add(ulPacketSinkHelper.Install(remoteHost));
+        if (randomNumber == 1)
+        {
+            clientApps = clientHelper.Install(ueNodes.Get(u));
+            Ptr<ThreeGppHttpClient> httpClient = clientApps.Get(0)->GetObject<ThreeGppHttpClient>();
 
-        UdpClientHelper ulClient(remoteHostAddr, webSocketClient); // udp client
-        ulClient.SetAttribute("Interval", TimeValue(interPacketInterval));
-        ulClient.SetAttribute("MaxPackets", UintegerValue(1000000));
-        clientApps.Add(ulClient.Install(ueNodes.Get(u)));
+            // Example of connecting to the trace sources
+            httpClient->TraceConnectWithoutContext("RxMainObject",
+                                                   MakeCallback(&ClientMainObjectReceived));
+            httpClient->TraceConnectWithoutContext("RxEmbeddedObject",
+                                                   MakeCallback(&ClientEmbeddedObjectReceived));
+            httpClient->TraceConnectWithoutContext("Rx", MakeCallback(&ClientRx));
+        }
     }
-// Run simulation
-Simulator::Stop(simTime);
-p2ph.EnablePcapAll("project");
-Simulator::Run();
-Simulator::Destroy();
 
-return 0;
+    serverApps.Start(MilliSeconds(500));
+    clientApps.Start(MilliSeconds(500));
+
+    // Run simulation
+    Simulator::Stop(simTime);
+    p2ph.EnablePcapAll("project");
+    Simulator::Run();
+    Simulator::Destroy();
+
+    return 0;
 }
-
-
-
-// Ptr<BuildingsPropagationLossModel> buildingLossModel = CreateObject<BuildingsPropagationLossModel>();
-// buildingLossModel->SetPathLossModel("ns3::LogDistancePropagationLossModel");
-// buildingLossModel->SetBuilding(building);
-
-// // Set the propagation loss model for nodes inside the building
-// for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
-//   Ptr<MobilityModel> mobility = ueNodes.Get(i)->GetObject<MobilityModel>();
-//   mobility->AggregateObject(buildingLossModel);
-// }
-
-// Ptr<ListPositionAllocator> positionAllocInBuilding = CreateObject<ListPositionAllocator>();
-// positionAllocInBuilding->Add(Vector(5.0, 5.0, 5.0));
-// positionAllocInBuilding->Add(Vector(5.0, 10.0, 5.0));
-// positionAllocInBuilding->Add(Vector(12.0, 20.0, 5.0));
-// positionAllocInBuilding->Add(Vector(25.0, 30.0, 5.0));
-// positionAllocInBuilding->Add(Vector(30.0, 45.0, 5.0));
-// // Add positions for UEs inside the building
-
-// // Assign these positions to UEs within the building
-// MobilityHelper mobilityInBuilding;
-// mobilityInBuilding.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-// mobilityInBuilding.SetPositionAllocator(positionAllocInBuilding);
-// mobilityInBuilding.Install(ueNodes.Get(0, 4)); // Assuming UEs 0-4 are inside the building
-
-// // Create a UDP echo application on each UE node
-// uint16_t echoPort = 9; // Echo port number
-// UdpEchoServerHelper echoServer(echoPort);
-// ApplicationContainer serverApps = echoServer.Install(ueNodes);
-// serverApps.Start(Seconds(0.0));
-// serverApps.Stop(simTime);
-
-// // Create a UDP client application on the remote host
-// uint16_t clientPort = 12345; // Client port number
-// UdpEchoClientHelper echoClient(ueInterfaces.GetAddress(0), echoPort);
-// echoClient.SetAttribute("MaxPackets", UintegerValue(10));
-// echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
-// echoClient.SetAttribute("PacketSize", UintegerValue(1024));
-// ApplicationContainer clientApps = echoClient.Install(remoteNode);
-// clientApps.Start(Seconds(0.0));
-// clientApps.Stop(simTime);
