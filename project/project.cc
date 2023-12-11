@@ -20,6 +20,7 @@
 #include "ns3/point-to-point-module.h"
 #include "ns3/propagation-loss-model.h"
 #include "ns3/traffic-control-module.h"
+#include <random>
 
 using namespace ns3;
 
@@ -90,6 +91,12 @@ ClientEmbeddedObjectReceived(Ptr<const ThreeGppHttpClient>, Ptr<const Packet> pa
         NS_LOG_INFO("Client failed to parse an embedded object. ");
     }
 }
+int getRandomNumber(int min, int max) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int> dis(min, max);
+        return dis(gen);
+    }
 
 int
 main(int argc, char* argv[])
@@ -128,18 +135,16 @@ main(int argc, char* argv[])
     // Create UEs, it was only for try the model
     NodeContainer ueNodes;
     ueNodes.Create(numberOfUes); // number of UEs defined by numNodePairs
+    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator>();
 
+    for (int i = 0; i < 20; i++) {
+        positionAlloc->Add(Vector(getRandomNumber(0, 500), getRandomNumber(0, 500), 0.0));
+    }
     // Install Mobility Model
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel"); // mobility model (constant)
+    mobility.SetPositionAllocator(positionAlloc); ///
     mobility.Install(enbNodes);
-
-    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator>();
-    positionAlloc->Add(Vector(0.0, 0.0, 0.0));
-    positionAlloc->Add(Vector(10.0, 0.0, 0.0));
-    positionAlloc->Add(Vector(20.0, 0.0, 0.0));
-    positionAlloc->Add(Vector(30.0, 0.0, 0.0));
-    positionAlloc->Add(Vector(40.0, 0.0, 0.0));
 
     // Assign positions to 5 stationary UEs
     NodeContainer stationaryUeNodes;
@@ -153,6 +158,7 @@ main(int argc, char* argv[])
     stationaryMobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     stationaryMobility.SetPositionAllocator(positionAlloc);
     stationaryMobility.Install(stationaryUeNodes);
+
 
     // Assign positions to 5 walking UEs
     NodeContainer walkingUeNodes;
@@ -172,16 +178,13 @@ main(int argc, char* argv[])
     ueNodes.Add(stationaryUeNodes);
     ueNodes.Add(walkingUeNodes);
 
-    // Install LTE Devices to the nodes
-    NetDeviceContainer enbLteDevs =
-        lteHelper->InstallEnbDevice(enbNodes); // add eNB nodes to the container
-    NetDeviceContainer ueLteDevs =
-        lteHelper->InstallUeDevice(ueNodes); // add UE nodes to the container
+    
     Ptr<Node> pgw = epcHelper->GetPgwNode(); // get the PGW node
 
     // Install Mobility Model for PGW
     MobilityHelper pgwMobility;
     pgwMobility.SetMobilityModel("ns3::ConstantPositionMobilityModel"); // mobility model (constant)
+    pgwMobility.SetPositionAllocator(positionAlloc);
     pgwMobility.Install(pgw);
 
     // Create a single RemoteHost
@@ -195,6 +198,7 @@ main(int argc, char* argv[])
     MobilityHelper remoteHostMobility;
     remoteHostMobility.SetMobilityModel(
         "ns3::ConstantPositionMobilityModel"); // mobility model (constant)
+    remoteHostMobility.SetPositionAllocator(positionAlloc);
     remoteHostMobility.Install(remoteHost);
 
     // Create the Internet
@@ -216,11 +220,20 @@ main(int argc, char* argv[])
                                                Ipv4Mask("255.0.0.0"),
                                                1); // add route
 
+    // Install LTE Devices to the nodes
+    NetDeviceContainer enbLteDevs =
+        lteHelper->InstallEnbDevice(enbNodes); // add eNB nodes to the container
+    NetDeviceContainer ueLteDevs =
+        lteHelper->InstallUeDevice(ueNodes); // add UE nodes to the container
+
+
     /// Install the IP stack on the UEs
     internet.Install(ueNodes);
     // Assign IP address to UEs, set static route
     Ipv4InterfaceContainer ueIpIface;
     ueIpIface = epcHelper->AssignUeIpv4Address(NetDeviceContainer(ueLteDevs));
+
+
 
     for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
     {
@@ -232,22 +245,23 @@ main(int argc, char* argv[])
                                          1); // default route
     }
 
-    // Attach one UE per eNodeB
-    for (uint16_t i = 0; i < numberOfUes; i++)
-    {
-        if (i % 2 == 0)
-        {
-            lteHelper->Attach(ueLteDevs.Get(i),
-                              enbLteDevs.Get(0)); // attach UE nodes to the 1st eNB node
-        }
-        else
-        {
-            lteHelper->Attach(ueLteDevs.Get(i),
-                              enbLteDevs.Get(1)); // attach UE nodes to the 2nd eNB node
-        }
-        // side effect: the default EPS bearer will be activated
-    }
-
+    // // Attach one UE per eNodeB
+    // for (uint16_t i = 0; i < numberOfUes; i++)
+    // {
+    //     if (i % 2 == 0)
+    //     {
+    //         lteHelper->Attach(ueLteDevs.Get(i),
+    //                           enbLteDevs.Get(0)); // attach UE nodes to the 1st eNB node
+    //     }
+    //     else
+    //     {
+    //         lteHelper->Attach(ueLteDevs.Get(i),
+    //                           enbLteDevs.Get(1)); // attach UE nodes to the 2nd eNB node
+    //     }
+    //     // side effect: the default EPS bearer will be activated
+    // }
+    // Attach UEs to eNodeBs
+    lteHelper->Attach(ueLteDevs);
     // Create HTTP server helper
     ThreeGppHttpServerHelper serverHelper(remoteHostAddr);
 
@@ -274,6 +288,14 @@ main(int argc, char* argv[])
     ThreeGppHttpClientHelper clientHelper(remoteHostAddr);
     ApplicationContainer clientApps;
     // Install HTTP client
+    // Install HTTP client
+    // ApplicationContainer clientApps = clientHelper.Install (ueNodes.Get (0));
+    // Ptr<ThreeGppHttpClient> httpClient = clientApps.Get (0)->GetObject<ThreeGppHttpClient> ();
+
+    // // Example of connecting to the trace sources
+    // httpClient->TraceConnectWithoutContext ("RxMainObject", MakeCallback (&ClientMainObjectReceived));
+    // httpClient->TraceConnectWithoutContext ("RxEmbeddedObject", MakeCallback (&ClientEmbeddedObjectReceived));
+    // httpClient->TraceConnectWithoutContext ("Rx", MakeCallback (&ClientRx));
     for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
     {
         clientApps = clientHelper.Install(ueNodes.Get(u));
@@ -303,20 +325,27 @@ main(int argc, char* argv[])
     // NetAnim animation
     AnimationInterface animation("project.xml"); // 1 Is SGW, 0 is PGW, 3 is Remote Host, 2 is MME,
                                                  // 6 and 7 are UE, 4 are 5 are eNodeB
-    // animation.UpdateNodeDescription(pgw,"PGW");
-    // animation.UpdateNodeDescription(remoteHost,"Remote Host");
-    // animation.UpdateNodeDescription(1,"SGW");
-    // animation.UpdateNodeDescription(2,"MME");
+    animation.UpdateNodeDescription(pgw,"PGW");
+    animation.UpdateNodeDescription(1,"SGW");
+    animation.UpdateNodeDescription(2,"MME");
 
-    // for (uint32_t u = 0; u < ueNodes.GetN (); ++u){
-    //     animation.UpdateNodeDescription(ueNodes.Get (u),"UE_"+std::to_string(u));
-    //     animation.UpdateNodeColor(ueNodes.Get (u), 0, 0, 255);
-    // }
+    for (uint32_t u = 0; u < 5; ++u){
+        animation.UpdateNodeDescription(ueNodes.Get (u),"UE_"+std::to_string(u));
+        animation.UpdateNodeColor(ueNodes.Get (u), 0, 0, 255);
+    }
 
-    // for (uint32_t u = 0; u < enbNodes.GetN (); ++u){
-    //     animation.UpdateNodeDescription(enbNodes.Get (u),"eNodeB_"+std::to_string(u));
-    //     animation.UpdateNodeColor(enbNodes.Get (u), 0, 255, 0);
-    // }
+    for (uint32_t u = 5; u < ueNodes.GetN (); ++u){
+        animation.UpdateNodeDescription(ueNodes.Get (u),"UE_"+std::to_string(u));
+        animation.UpdateNodeColor(ueNodes.Get (u), 0, 255, 0);
+    }
+
+    for (uint32_t u = 0; u < enbNodes.GetN (); ++u){
+        animation.UpdateNodeDescription(enbNodes.Get (u),"eNodeB_"+std::to_string(u));
+        animation.UpdateNodeColor(enbNodes.Get (u), 0, 255, 0);
+    }
+
+    animation.UpdateNodeDescription(remoteHostContainer.Get (0),"remoteHost"+std::to_string(0));
+    animation.UpdateNodeColor(remoteHostContainer.Get (0), 0, 255, 0);
 
     monitor = flowMonHelper.Install(enbNodes);
     monitor = flowMonHelper.Install(ueNodes);
@@ -347,7 +376,7 @@ main(int argc, char* argv[])
     gnuplot_DR.SetTitle(plotTitle);
     gnuplot_DR.SetTerminal("png");
     gnuplot_DR.SetLegend("IDs of all streams", "Data rate [kbps]");
-    gnuplot_DR.AppendExtra("set xrange [1:" + std::to_string(numberOfUes * 2) + "]");
+    gnuplot_DR.AppendExtra("set xrange [1:" + std::to_string(numberOfUes * 4) + "]");
     gnuplot_DR.AppendExtra("set yrange [0:2500]");
     gnuplot_DR.AppendExtra("set grid");
     Gnuplot2dDataset dataset_rate;
