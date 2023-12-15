@@ -362,8 +362,8 @@ main(int argc, char* argv[])
     gnuplot.SetTitle(plotTitle);
     gnuplot.SetTerminal("png");
     gnuplot.SetLegend("IDs of data streams", "Delay [ms]");
-    gnuplot.AppendExtra("set xrange [1:" + std::to_string(numberOfUes * 2) + "]");
-    gnuplot.AppendExtra("set yrange [0:500]");
+    gnuplot.AppendExtra("set xrange [1:" + std::to_string(numberOfUes * 4) + "]");
+    gnuplot.AppendExtra("set yrange [0:100]");
     gnuplot.AppendExtra("set grid");
     Gnuplot2dDataset dataset_delay;
 
